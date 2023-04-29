@@ -40,6 +40,7 @@ quad hsv(int hue, float sat, float val) {
 	case 5: return { (int) val * 255, (int) p * 255, (int) q * 255 };
 	}
 }
+
 class Shelling
 {
 public:
@@ -49,7 +50,6 @@ public:
 	float p0 = 0.2, p1 = 0.4;
 	const float maxr = float(2 << 16);
 	int t = 3;
-
 	sf::Uint8* pixels;
 	sf::Texture texture;
 
@@ -114,14 +114,14 @@ public:
 		}
 		return 0;
 	}
-	int update()
-	{
-		int perms = 0;
-		for (int i = 0; i < n; ++i)
+	
+	void partUpdate(int starti, int startj, int height, int width) {
+		//int perms = 0;
+		for (int i = starti; i < starti + height; ++i)
 		{
-			for (int j = 0; j < m; ++j)
+			for (int j = startj; j < startj + width; ++j)
 			{
-				auto nearby = countNear(i, j);
+				const int nearby = countNear(i, j);
 				if (nearby >= t)
 				{
 					int rndk = mrand() % free.size();
@@ -129,17 +129,33 @@ public:
 					swap(field[i][j], field[k / m][k % m]);
 					swap4(i, j, k / m, k % m);
 					free[rndk] = i * m + j;
-					perms++;
+					//perms++;
 				}
 			}
 		}
-		return perms;
+	}
+
+	int update()
+	{
+		int perms = 0;
+		thread t1(&Shelling::partUpdate, this, 0, 0, n / 2, m / 2);
+
+		thread t2(&Shelling::partUpdate, this, n / 2, 0, n / 2, m / 2);
+
+		thread t3(&Shelling::partUpdate, this, 0, m / 2, n / 2, m / 2);
+
+		thread t4(&Shelling::partUpdate, this, n / 2, m / 2, n / 2, m / 2);
+		t1.join();
+		t2.join();
+		t3.join();
+		t4.join();
+		return 1;
 	}
 
 	Shelling(unsigned n, unsigned m, float p0, float p1, float t) : n(n), m(m), p0(p0), p1(p1), t(t)
 	{
 		field.resize(n, vector<int>(m));
-		texture.create(n, m);
+		texture.create(m, n);
 		pixels = new sf::Uint8[n * m * 4];
 		setup();
 	}
@@ -153,12 +169,11 @@ public:
 
 
 
-
 int main()
 {
-	const unsigned int W = 720;
+	const unsigned int W = 1280;
 	const unsigned int H = 720; 
-	Shelling model(W, H, 0.1, 0.5, 5);
+	Shelling model(H, W, 0.1, 0.5, 4);
 	sf::RenderWindow window(sf::VideoMode(W, H), "Shelling segregation");
 
 	while (window.isOpen())
