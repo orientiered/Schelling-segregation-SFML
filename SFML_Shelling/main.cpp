@@ -4,12 +4,17 @@
 #include <set>
 #include <time.h>
 #include <random>
-#include <SFML/Graphics/Color.hpp>
 #include <thread>
-#include <mutex>
+#include <SFML/Graphics/Color.hpp>
+#include <SFML/Window/Keyboard.hpp>
+
+
 using namespace std;
+
 mt19937 mrand(time(nullptr));
-mutex mtx;
+
+#define kb sf::Keyboard::
+
 struct quad {
 	uint8_t r, g, b, a;
 	quad(float r, float g, float b) : r(int(r)), g(int(g)), b(int(b)), a(255) {}
@@ -68,11 +73,11 @@ public:
 	vector<int> free; // массив пустых клеток
 
 	//меняем блоки из 4 Uint8 в pixels
-	void swap4(int i, int j, int k, int t) {
-		swap(pixels[4 * (i * m + j)], pixels[4 * (k * m + t)]);
-		swap(pixels[4 * (i * m + j) + 1], pixels[4 * (k * m + t) + 1]);
-		swap(pixels[4 * (i * m + j) + 2], pixels[4 * (k * m + t) + 2]);
-		swap(pixels[4 * (i * m + j) + 3], pixels[4 * (k * m + t) + 3]);
+	void swap4(int i, int j) {
+		swap(pixels[4 * i], pixels[4 * j]);
+		swap(pixels[4 * i + 1], pixels[4 * j + 1]);
+		swap(pixels[4 * i + 2], pixels[4 * j + 2]);
+		swap(pixels[4 * i + 3], pixels[4 * j + 3]);
 	}; 
 	void setup() {
 
@@ -87,7 +92,7 @@ public:
 					free.push_back(i * m + j);
 				}
 				else if (uniform) {
-					field[i][j] = (rt-p0)/(1-p0) * colors;
+					field[i][j] = abs(int((rt-p0)/(1-p0) * colors)) + 1;
 				}
 				else {
 					int k = 0;
@@ -98,7 +103,7 @@ public:
 					}
 					field[i][j] = k;
 				}
-				quad col = hsv(field[i][j] * 360 / colors, 0.95 * (field[i][j] != 0), 0.95 * (field[i][j] != 0));
+				quad col = hsv(field[i][j] * 449 / colors, 0.95 * (field[i][j] != 0), 0.95 * (field[i][j] != 0));
 				col.set(pixels, 4 * (i * m + j));
 			}
 		}
@@ -125,7 +130,7 @@ public:
 				sum += (field[(i + h) % h][(j + w) % w] > 0);
 			}
 		}
-		return sum - colorCount[field[x][y] - 1];
+		return sum - colorCount[field[x][y]];
 	}
 
 	void partUpdate(int starti, int startj, int height, int width) {
@@ -140,7 +145,7 @@ public:
 					int rndk = mrand() % free.size();
 					int k = free[rndk];
 					swap(field[i][j], field[k / m][k % m]);
-					swap4(i, j, k / m, k % m);
+					swap4(i*m + j, k);
 					free[rndk] = i * m + j;
 					//perms++;
 				}
@@ -171,22 +176,59 @@ public:
 	~Shelling() {
 		delete[] pixels;
 	}
+	
 };
 
 
 
+void InputHandler(Shelling& model) {
+	bool pressedUp = false;
+	bool pressedDown = false;
+	int colors = model.colors;
 
+	while (true) {
+		if (kb isKeyPressed(kb Key::Up)) {
+				pressedUp = true;
+			}
+			else if (pressedUp) {
+				cout << "clicked up\n";
+				pressedUp = false;
+				colors++;
+				model.colors = colors;
+				model.setup();
+			}
+
+			if (kb isKeyPressed(kb Key::Down)) {
+				pressedDown = true;
+			}
+			else if (pressedDown) {
+				cout << "clicked down\n";
+				pressedDown = false;
+				colors = max(2, colors - 1);
+				model.colors = colors;
+				model.setup();
+			}
+	}
+	
+
+}
 
 int main()
 {
 	const unsigned int W = 1280;
 	const unsigned int H = 720;
-	Shelling model(H, W, 0.01, {0.3, 0.2, 0.49}, 9);
-	//Shelling model(H, W, 0.01, {0.33, 0.32, 0.6}, 5);
-	sf::RenderWindow window(sf::VideoMode(W, H), "Shelling segregation");
+
+	int colors = 2;
+	Shelling model(H, W, 0.04, colors , 7);
+
+	thread ISystem(InputHandler, ref(model));
+	ISystem.detach();
+	sf::RenderWindow window(sf::VideoMode(W, H), "Schelling segregation");
 
 	while (window.isOpen())
 	{
+		
+
 		sf::Event event;
 		while (window.pollEvent(event))
 		{
