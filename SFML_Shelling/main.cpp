@@ -1,10 +1,11 @@
 #include <SFML/Graphics.hpp>
 #include <iostream>
+#include <string>
 #include <vector>
-#include <set>
 #include <time.h>
 #include <random>
 #include <thread>
+#include <chrono>
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Window/Keyboard.hpp>
 
@@ -55,20 +56,47 @@ quad hsv(int hue, float sat, float val) {
 	}
 }
 
-class Shelling
+class EventSeparator { // класс дл€ контрол€ работы разных потоков над одним объектом
+public:
+	int last_thread = -1;
+	int queue = 0;
+	bool isProcessing = false;
+	void startEvent(int thread = 0) {
+		if (isProcessing) queue++;
+		while (isProcessing && last_thread != 1) { // поток 1 имеет приоритет, так как в нЄм могут мен€тьс€ параметры, необходимые в update
+			this_thread::sleep_for(chrono::milliseconds(5));
+		}
+		last_thread = thread;
+		isProcessing = true;
+	}
+	void endEvent() {
+		
+		isProcessing = false;
+		if (queue) {
+			this_thread::sleep_for(chrono::milliseconds(20));
+			queue--;
+		}
+	}
+};
+
+class Shelling: public EventSeparator
 {
 public:
 	unsigned n;
 	unsigned m;
 	vector<vector<int>> field;
 	float p0 = 0.2; //веро€тность пустых клеток
-	int colors = 0; // общее количество цветов (не счита€ пустого)
+	int colours = 0; // общее количество цветов (не счита€ пустого)
 	bool uniform = true; // равномерное распределение цветов
 	vector<float> probs; // если неравномерное
 	const float maxr = float(2 << 16);
 	int t = 3; // терпимость, макс. количество чужих вокруг
+	int r = 2; // радиус квадрата проверки чужих
+
+
 	sf::Uint8* pixels;
 	sf::Texture texture;
+
 
 	vector<int> free; // массив пустых клеток
 
@@ -79,20 +107,24 @@ public:
 		swap(pixels[4 * i + 2], pixels[4 * j + 2]);
 		swap(pixels[4 * i + 3], pixels[4 * j + 3]);
 	}; 
-	void setup() {
+
+	void setup(int thread = 0) {
+		
+		startEvent(thread);
+
+		free.clear();
 
 		for (int i = 0; i < n; ++i) {
 			for (int j = 0; j < m; ++j) {
 
 				float rt = float(mrand() % int(maxr)) / maxr;
 
-				if (rt < p0)
-				{
+				if (rt < p0) {
 					field[i][j] = 0;
 					free.push_back(i * m + j);
 				}
 				else if (uniform) {
-					field[i][j] = abs(int((rt-p0)/(1-p0) * colors)) + 1;
+					field[i][j] = abs(int((rt-p0)/(1-p0) * colours)) + 1;
 				}
 				else {
 					int k = 0;
@@ -103,10 +135,13 @@ public:
 					}
 					field[i][j] = k;
 				}
-				quad col = hsv(field[i][j] * 449 / colors, 0.95 * (field[i][j] != 0), 0.95 * (field[i][j] != 0));
+
+				quad col = hsv(field[i][j] * 449 / colours, 0.95 * (field[i][j] != 0), 0.95 * (field[i][j] != 0));
 				col.set(pixels, 4 * (i * m + j));
 			}
 		}
+		
+		endEvent();
 	}
 
 	void draw(sf::RenderWindow& window)
@@ -116,17 +151,17 @@ public:
 		window.draw(sprite);
 	}
 
-	int countNear(int x, int y, int r = 2)
+	int countNear(int x, int y)
 	{
 		int w = m, h = n;
 		if (field[x][y] == 0) return 0;
-		vector<int> colorCount(colors+1);
+		vector<int> colorCount(colours+1);
 		int sum = 0;
 		for (int i = x - r; i < x + r; i++)
 		{
 			for (int j = y - r; j < y + r; j++)
 			{
-				colorCount[field[(i + h) % h][(j + w) % w]]++;
+				colorCount[field[(i + h) % h][(j + w) % w]]++; // циклические координаты
 				sum += (field[(i + h) % h][(j + w) % w] > 0);
 			}
 		}
@@ -134,7 +169,6 @@ public:
 	}
 
 	void partUpdate(int starti, int startj, int height, int width) {
-		//int perms = 0;
 		for (int i = starti; i < starti + height; ++i)
 		{
 			for (int j = startj; j < startj + width; ++j)
@@ -147,25 +181,28 @@ public:
 					swap(field[i][j], field[k / m][k % m]);
 					swap4(i*m + j, k);
 					free[rndk] = i * m + j;
-					//perms++;
 				}
 			}
 		}
 	}
 
-	void update()
+	void update(int thread = 0)
 	{
+		startEvent(thread);
+
 		partUpdate(0, 0, n, m);
+		
+		endEvent();
 	}
 
-	Shelling(unsigned n, unsigned m, float p0, int colors, int t) : n(n), m(m), p0(p0), colors(colors), t(t)
+	Shelling(unsigned n, unsigned m, float p0, int colours, int t) : n(n), m(m), p0(p0), colours(colours), t(t)
 	{
 		field.resize(n, vector<int>(m));
 		texture.create(m, n);
 		pixels = new sf::Uint8[n * m * 4];
 		setup();
 	}
-	Shelling(unsigned n, unsigned m, float p0, vector<float> probs, int t) : n(n), m(m), p0(p0), colors(probs.size()), probs(probs), t(t)
+	Shelling(unsigned n, unsigned m, float p0, vector<float> probs, int t) : n(n), m(m), p0(p0), colours(probs.size()), probs(probs), t(t)
 	{
 		uniform = false;
 		field.resize(n, vector<int>(m));
@@ -184,30 +221,91 @@ public:
 void InputHandler(Shelling& model) {
 	bool pressedUp = false;
 	bool pressedDown = false;
-	int colors = model.colors;
+	bool pressedLeft = false;
+	bool pressedRight = false;
 
+	int paramId = 1;
+	// float p0, int colours, int t, int r
+	vector<string> fieldNames = { "Empty probability", "Number of colours", "Tolerance (max number of enemies)", "Radius of enemies checking" };
+	auto setParam = [&](int ivalue, float fvalue) {
+		model.startEvent(1);
+		switch (paramId) {
+		case 0:
+			model.p0 = fvalue;
+			break;
+		case 1:
+			model.colours = ivalue;
+			break;
+		case 2:
+			model.t = ivalue;
+			break;
+		case 3:
+			model.r = ivalue;
+			break;
+		}
+		model.setup(1);
+	};
+	cout << "Editable setting: " << fieldNames[paramId] << "\n";
 	while (true) {
 		if (kb isKeyPressed(kb Key::Up)) {
-				pressedUp = true;
+			pressedUp = true;
+		}
+		else if (pressedUp) {
+			switch (paramId) {
+			case 0:
+				setParam(0, min(0.95, model.p0 + 0.05));
+				break;
+			case 1:
+				setParam(model.colours+1, 0);
+				break;
+			case 2:
+				setParam(model.t+1, 0);
+				break;
+			case 3:
+				setParam(model.r+1, 0);
+				break;
 			}
-			else if (pressedUp) {
-				cout << "clicked up\n";
-				pressedUp = false;
-				colors++;
-				model.colors = colors;
-				model.setup();
+			pressedUp = false;
+			cout << "Current parameters: p0 = " << model.p0 << " colours = " << model.colours << " t = " << model.t << " r = " << model.r << "\n";
+		}
+		if (kb isKeyPressed(kb Key::Down)) {
+			pressedDown = true;
+		}
+		else if (pressedDown) {
+			switch(paramId) {
+			case 0:
+				setParam(0, max(0.05, model.p0 - 0.05));
+				break;
+			case 1:
+				setParam(max(2, model.colours -1), 0);
+				break;
+			case 2:
+				setParam(max(0, model.t -1), 0);
+				break;
+			case 3:
+				setParam(max(1, model.r -1), 0);
+				break;
 			}
+			pressedDown = false;
+			cout << "Current parameters: p0 = " << model.p0 << " colours = " << model.colours << " t = " << model.t << " r = " << model.r << "\n";
+		}
 
-			if (kb isKeyPressed(kb Key::Down)) {
-				pressedDown = true;
-			}
-			else if (pressedDown) {
-				cout << "clicked down\n";
-				pressedDown = false;
-				colors = max(2, colors - 1);
-				model.colors = colors;
-				model.setup();
-			}
+		if (kb isKeyPressed(kb Key::Left)) {
+			pressedLeft = true;
+		}
+		else if (pressedLeft) {
+			paramId = (paramId - 1 + fieldNames.size()) % fieldNames.size();
+			pressedLeft = false;
+			cout << "Editable setting: " << fieldNames[paramId] << "\n";
+		}
+		if (kb isKeyPressed(kb Key::Right)) {
+			pressedRight = true;
+		}
+		else if (pressedRight) {
+			paramId = (paramId + 1) % fieldNames.size();
+			pressedRight = false;
+			cout << "Editable setting: " << fieldNames[paramId] << "\n";
+		}
 	}
 	
 
@@ -219,8 +317,9 @@ int main()
 	const unsigned int H = 720;
 
 	int colors = 2;
-	Shelling model(H, W, 0.04, colors , 7);
+	Shelling model(H, W, 0.02, colors , 7);
 
+	cout << "Current parameters: p0 = " << model.p0 << " colours = " << model.colours << " t = " << model.t << " r = " << model.r << "\n";
 	thread ISystem(InputHandler, ref(model));
 	ISystem.detach();
 	sf::RenderWindow window(sf::VideoMode(W, H), "Schelling segregation");
