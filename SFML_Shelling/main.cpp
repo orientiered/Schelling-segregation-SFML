@@ -19,14 +19,14 @@ mt19937 mrand(time(nullptr));
 struct quad {
 	uint8_t r, g, b, a;
 	quad(float r, float g, float b) : r(int(r)), g(int(g)), b(int(b)), a(255) {}
-	void set(sf::Uint8* colors, int i) { // ставит весь пиксель на нужное место
+	void set(sf::Uint8* colors, int i) { // СЃС‚Р°РІРёС‚ РІРµСЃСЊ РїРёРєСЃРµР»СЊ РЅР° РЅСѓР¶РЅРѕРµ РјРµСЃС‚Рѕ
 		colors[i] = r;
 		colors[i+1] = g;
 		colors[i+2] = b;
 		colors[i+3] = a;
 	}
 };
-// hue: 0-360°; sat: 0.f-1.f; val: 0.f-1.f
+// hue: 0-360В°; sat: 0.f-1.f; val: 0.f-1.f
 quad hsv(int hue, float sat, float val) {
 
 	hue %= 360;
@@ -56,14 +56,14 @@ quad hsv(int hue, float sat, float val) {
 	}
 }
 
-class EventSeparator { // класс для контроля работы разных потоков над одним объектом
+class EventSeparator { // РєР»Р°СЃСЃ РґР»СЏ РєРѕРЅС‚СЂРѕР»СЏ СЂР°Р±РѕС‚С‹ СЂР°Р·РЅС‹С… РїРѕС‚РѕРєРѕРІ РЅР°Рґ РѕРґРЅРёРј РѕР±СЉРµРєС‚РѕРј
 public:
 	int last_thread = -1;
 	int queue = 0;
 	bool isProcessing = false;
 	void startEvent(int thread = 0) {
 		if (isProcessing) queue++;
-		while (isProcessing && last_thread != 1) { // поток 1 имеет приоритет, так как в нём могут меняться параметры, необходимые в update
+		while (isProcessing && last_thread != 1) { // РїРѕС‚РѕРє 1 РёРјРµРµС‚ РїСЂРёРѕСЂРёС‚РµС‚, С‚Р°Рє РєР°Рє РІ РЅС‘Рј РјРѕРіСѓС‚ РјРµРЅСЏС‚СЊСЃСЏ РїР°СЂР°РјРµС‚СЂС‹, РЅРµРѕР±С…РѕРґРёРјС‹Рµ РІ update
 			this_thread::sleep_for(chrono::milliseconds(5));
 		}
 		last_thread = thread;
@@ -85,22 +85,22 @@ public:
 	unsigned n;
 	unsigned m;
 	vector<vector<int>> field;
-	float p0 = 0.2; //вероятность пустых клеток
-	int colours = 0; // общее количество цветов (не считая пустого)
-	bool uniform = true; // равномерное распределение цветов
-	vector<float> probs; // если неравномерное
+	float p0 = 0.2; //РІРµСЂРѕСЏС‚РЅРѕСЃС‚СЊ РїСѓСЃС‚С‹С… РєР»РµС‚РѕРє
+	int colours = 0; // РѕР±С‰РµРµ РєРѕР»РёС‡РµСЃС‚РІРѕ С†РІРµС‚РѕРІ (РЅРµ СЃС‡РёС‚Р°СЏ РїСѓСЃС‚РѕРіРѕ)
+	bool uniform = true; // СЂР°РІРЅРѕРјРµСЂРЅРѕРµ СЂР°СЃРїСЂРµРґРµР»РµРЅРёРµ С†РІРµС‚РѕРІ
+	vector<float> probs; // РµСЃР»Рё РЅРµСЂР°РІРЅРѕРјРµСЂРЅРѕРµ
 	const float maxr = float(2 << 16);
-	int t = 3; // терпимость, макс. количество чужих вокруг
-	int r = 2; // радиус квадрата проверки чужих
+	int t = 3; // С‚РµСЂРїРёРјРѕСЃС‚СЊ, РјР°РєСЃ. РєРѕР»РёС‡РµСЃС‚РІРѕ С‡СѓР¶РёС… РІРѕРєСЂСѓРі
+	int r = 2; // СЂР°РґРёСѓСЃ РєРІР°РґСЂР°С‚Р° РїСЂРѕРІРµСЂРєРё С‡СѓР¶РёС…
 
 
 	sf::Uint8* pixels;
 	sf::Texture texture;
 
 
-	vector<int> free; // массив пустых клеток
+	vector<int> free; // РјР°СЃСЃРёРІ РїСѓСЃС‚С‹С… РєР»РµС‚РѕРє
 
-	//меняем блоки из 4 Uint8 в pixels
+	//РјРµРЅСЏРµРј Р±Р»РѕРєРё РёР· 4 Uint8 РІ pixels
 	void swap4(int i, int j) {
 		swap(pixels[4 * i], pixels[4 * j]);
 		swap(pixels[4 * i + 1], pixels[4 * j + 1]);
@@ -161,7 +161,7 @@ public:
 		{
 			for (int j = y - r; j < y + r; j++)
 			{
-				colorCount[field[(i + h) % h][(j + w) % w]]++; // циклические координаты
+				colorCount[field[(i + h) % h][(j + w) % w]]++; // С†РёРєР»РёС‡РµСЃРєРёРµ РєРѕРѕСЂРґРёРЅР°С‚С‹
 				sum += (field[(i + h) % h][(j + w) % w] > 0);
 			}
 		}
