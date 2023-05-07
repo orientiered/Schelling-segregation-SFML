@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <deque>
 #include <time.h>
 #include <random>
 #include <thread>
@@ -9,7 +10,6 @@
 #include <format>
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Window/Keyboard.hpp>
-
 
 using namespace std;
 
@@ -58,26 +58,19 @@ quad hsv(int hue, float sat, float val) {
 }
 
 class EventSeparator { // класс для контроля работы разных потоков над одним объектом
+private:
+	deque<int> eventQueue;
 public:
-	int last_thread = -1;
-	int queue = 0;
-	bool isProcessing = false;
 	void startEvent(int thread = 0) {
-		if (isProcessing && thread != 0) queue++;
-		while (isProcessing && last_thread != 1) { // поток 1 имеет приоритет, так как в нём могут меняться параметры, необходимые в update
+		eventQueue.push_back(thread);
+		while (eventQueue.front() != thread) {
 			this_thread::sleep_for(chrono::milliseconds(5));
 		}
-		last_thread = thread;
-		isProcessing = true;
 	}
 	void endEvent() {
-		
-		isProcessing = false;
-		if (queue) {
-			this_thread::sleep_for(chrono::milliseconds(20)); // основной поток пропускает поток, который обвноляет модель
-			queue--;
-		}
+		eventQueue.pop_front();
 	}
+
 };
 
 class Shelling: public EventSeparator
@@ -97,7 +90,6 @@ private:
 	sf::Uint8* pixels;
 	sf::Texture texture;
 
-
 	vector<int> free; // массив пустых клеток
 
 	//меняем блоки из 4 Uint8 в pixels
@@ -107,6 +99,7 @@ private:
 		swap(pixels[4 * i + 2], pixels[4 * j + 2]);
 		swap(pixels[4 * i + 3], pixels[4 * j + 3]);
 	};
+
 public:
 	string getInfo() {
 		return "Current parameters: p0 = " + format("{:.2f}", p0) + " colours = " + to_string(colours) + " t = " + to_string(t) + " r = " + to_string(r);
@@ -140,11 +133,13 @@ public:
 				r = max(1, r - 1);
 			break;
 		}
-		setup(1);
+		setup(-1);
+		endEvent();
 	}
+
 	void setup(int thread = 0) {
 		
-		startEvent(thread);
+		if (thread >= 0) startEvent(thread); //если номер потока меньше 0, то считаем, что о синхронизации позаботились в другой функции
 
 		free.clear();
 
@@ -175,15 +170,14 @@ public:
 			}
 		}
 		
-		endEvent();
+		if (thread >= 0) endEvent();
 	}
-
-
 
 	void draw(sf::RenderWindow& window)
 	{
 		static sf::Sprite sprite(texture);
 		texture.update(pixels);
+		sprite.setScale(sf::Vector2f(float(window.getSize().x)/m, float(window.getSize().y)/n));
 		window.draw(sprite);
 	}
 
@@ -259,6 +253,7 @@ void InputHandler(Shelling& model) {
 	bool pressedDown = false;
 	bool pressedLeft = false;
 	bool pressedRight = false;
+	bool pressedSpace = false;
 
 	int paramId = 1;
 	//     0            1       2      3
@@ -267,6 +262,11 @@ void InputHandler(Shelling& model) {
 
 	cout << "Editable setting: " << fieldNames[paramId] << "\n";
 	while (true) {
+		if (kb isKeyPressed(kb Key::Space)) pressedSpace = true;
+		else if (pressedSpace) {
+			pressedSpace = false;
+			model.setup(1);
+		}
 		if (kb isKeyPressed(kb Key::Up)) {
 			pressedUp = true;
 		}
@@ -305,18 +305,19 @@ void InputHandler(Shelling& model) {
 
 }
 
-int main()
-{
-	const unsigned int W = 1280;
-	const unsigned int H = 720;
+int main() {
+	unsigned int W = sf::VideoMode::getDesktopMode().width * 2 / 3;
+	unsigned int H = sf::VideoMode::getDesktopMode().height * 2 / 3;
 
-	int colors = 2;
-	Shelling model(H, W, 0.02, colors , 7);
+	int colours = 2;
+	Shelling model(H, W, 0.02, colours , 7);
 
 	cout << model.getInfo() << "\n";
 	thread ISystem(InputHandler, ref(model));
 	ISystem.detach();
 	sf::RenderWindow window(sf::VideoMode(W, H), "Schelling segregation");
+	
+	bool fullscreen = false;
 
 	while (window.isOpen())
 	{
@@ -327,6 +328,16 @@ int main()
 		{
 			if (event.type == sf::Event::Closed)
 				window.close();
+			if (event.type == sf::Event::KeyReleased && event.key.code == sf::Keyboard::F12)
+			{
+				fullscreen = !fullscreen;
+				if (fullscreen) {
+					window.create(sf::VideoMode::getDesktopMode(), "Schelling Segregation", sf::Style::None);
+				}
+				else {
+					window.create(sf::VideoMode(W, H), "Schelling segregation");
+				}
+			}
 		}
 
 		window.clear();
