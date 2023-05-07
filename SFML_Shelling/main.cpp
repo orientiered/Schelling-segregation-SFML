@@ -6,6 +6,7 @@
 #include <random>
 #include <thread>
 #include <chrono>
+#include <format>
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Window/Keyboard.hpp>
 
@@ -62,7 +63,7 @@ public:
 	int queue = 0;
 	bool isProcessing = false;
 	void startEvent(int thread = 0) {
-		if (isProcessing) queue++;
+		if (isProcessing && thread != 0) queue++;
 		while (isProcessing && last_thread != 1) { // поток 1 имеет приоритет, так как в нём могут меняться параметры, необходимые в update
 			this_thread::sleep_for(chrono::milliseconds(5));
 		}
@@ -73,7 +74,7 @@ public:
 		
 		isProcessing = false;
 		if (queue) {
-			this_thread::sleep_for(chrono::milliseconds(20));
+			this_thread::sleep_for(chrono::milliseconds(20)); // основной поток пропускает поток, который обвноляет модель
 			queue--;
 		}
 	}
@@ -81,7 +82,7 @@ public:
 
 class Shelling: public EventSeparator
 {
-public:
+private:
 	unsigned n;
 	unsigned m;
 	vector<vector<int>> field;
@@ -92,7 +93,6 @@ public:
 	const float maxr = float(2 << 16);
 	int t = 3; // терпимость, макс. количество чужих вокруг
 	int r = 2; // радиус квадрата проверки чужих
-
 
 	sf::Uint8* pixels;
 	sf::Texture texture;
@@ -106,8 +106,42 @@ public:
 		swap(pixels[4 * i + 1], pixels[4 * j + 1]);
 		swap(pixels[4 * i + 2], pixels[4 * j + 2]);
 		swap(pixels[4 * i + 3], pixels[4 * j + 3]);
-	}; 
-
+	};
+public:
+	string getInfo() {
+		return "Current parameters: p0 = " + format("{:.2f}", p0) + " colours = " + to_string(colours) + " t = " + to_string(t) + " r = " + to_string(r);
+	}
+	// float p0, int colours, int t, int r
+	void setParam(int paramId, bool inc) {
+		startEvent(1);
+		switch (paramId) {
+		case 0:
+			if (inc)
+				p0 = min(0.95, p0 + 0.05);
+			else
+				p0 = max(0.03, p0 - 0.05);
+			break;
+		case 1:
+			if (inc)
+				colours++;
+			else
+				colours = max(2, colours - 1);
+			break;
+		case 2:
+			if (inc)
+				t++;
+			else
+				t = max(0, t - 1);
+			break;
+		case 3:
+			if (inc)
+				r++;
+			else
+				r = max(1, r - 1);
+			break;
+		}
+		setup(1);
+	}
 	void setup(int thread = 0) {
 		
 		startEvent(thread);
@@ -136,13 +170,15 @@ public:
 					field[i][j] = k;
 				}
 
-				quad col = hsv(field[i][j] * 449 / colours, 0.95 * (field[i][j] != 0), 0.95 * (field[i][j] != 0));
+				quad col = hsv(field[i][j] * 360 / colours, 0.95 * (field[i][j] != 0), 0.95 * (field[i][j] != 0));
 				col.set(pixels, 4 * (i * m + j));
 			}
 		}
 		
 		endEvent();
 	}
+
+
 
 	void draw(sf::RenderWindow& window)
 	{
@@ -153,19 +189,19 @@ public:
 
 	int countNear(int x, int y)
 	{
-		int w = m, h = n;
-		if (field[x][y] == 0) return 0;
-		vector<int> colorCount(colours+1);
-		int sum = 0;
+		//int w = m, h = n;
+		if (field[x][y] == 0) return 0; // для пустых клеток нет врагов
+		int total = 0, target = 0, targetColor = field[x][y];
 		for (int i = x - r; i < x + r; i++)
 		{
 			for (int j = y - r; j < y + r; j++)
 			{
-				colorCount[field[(i + h) % h][(j + w) % w]]++; // циклические координаты
-				sum += (field[(i + h) % h][(j + w) % w] > 0);
+				int c = field[(i + n) % n][(j + m) % m]; // цвет в клетке с цикличными координатами
+				if (c > 0) total++;
+				if (c == targetColor) target++;
 			}
 		}
-		return sum - colorCount[field[x][y]];
+		return total - target;
 	}
 
 	void partUpdate(int starti, int startj, int height, int width) {
@@ -225,69 +261,27 @@ void InputHandler(Shelling& model) {
 	bool pressedRight = false;
 
 	int paramId = 1;
+	//     0            1       2      3
 	// float p0, int colours, int t, int r
 	vector<string> fieldNames = { "Empty probability", "Number of colours", "Tolerance (max number of enemies)", "Radius of enemies checking" };
-	auto setParam = [&](int ivalue, float fvalue) {
-		model.startEvent(1);
-		switch (paramId) {
-		case 0:
-			model.p0 = fvalue;
-			break;
-		case 1:
-			model.colours = ivalue;
-			break;
-		case 2:
-			model.t = ivalue;
-			break;
-		case 3:
-			model.r = ivalue;
-			break;
-		}
-		model.setup(1);
-	};
+
 	cout << "Editable setting: " << fieldNames[paramId] << "\n";
 	while (true) {
 		if (kb isKeyPressed(kb Key::Up)) {
 			pressedUp = true;
 		}
 		else if (pressedUp) {
-			switch (paramId) {
-			case 0:
-				setParam(0, min(0.95, model.p0 + 0.05));
-				break;
-			case 1:
-				setParam(model.colours+1, 0);
-				break;
-			case 2:
-				setParam(model.t+1, 0);
-				break;
-			case 3:
-				setParam(model.r+1, 0);
-				break;
-			}
+			model.setParam(paramId, 1);
 			pressedUp = false;
-			cout << "Current parameters: p0 = " << model.p0 << " colours = " << model.colours << " t = " << model.t << " r = " << model.r << "\n";
+			cout << model.getInfo() << "\n";
 		}
 		if (kb isKeyPressed(kb Key::Down)) {
 			pressedDown = true;
 		}
 		else if (pressedDown) {
-			switch(paramId) {
-			case 0:
-				setParam(0, max(0.05, model.p0 - 0.05));
-				break;
-			case 1:
-				setParam(max(2, model.colours -1), 0);
-				break;
-			case 2:
-				setParam(max(0, model.t -1), 0);
-				break;
-			case 3:
-				setParam(max(1, model.r -1), 0);
-				break;
-			}
+			model.setParam(paramId, 0);
 			pressedDown = false;
-			cout << "Current parameters: p0 = " << model.p0 << " colours = " << model.colours << " t = " << model.t << " r = " << model.r << "\n";
+			cout << model.getInfo() << "\n";
 		}
 
 		if (kb isKeyPressed(kb Key::Left)) {
@@ -319,7 +313,7 @@ int main()
 	int colors = 2;
 	Shelling model(H, W, 0.02, colors , 7);
 
-	cout << "Current parameters: p0 = " << model.p0 << " colours = " << model.colours << " t = " << model.t << " r = " << model.r << "\n";
+	cout << model.getInfo() << "\n";
 	thread ISystem(InputHandler, ref(model));
 	ISystem.detach();
 	sf::RenderWindow window(sf::VideoMode(W, H), "Schelling segregation");
