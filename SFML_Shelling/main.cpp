@@ -5,17 +5,17 @@
 #include <deque>
 #include <time.h>
 #include <random>
-#include <thread>
 #include <chrono>
 #include <format>
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Window/Keyboard.hpp>
+#include <SFML/Window/Mouse.hpp>
 
 using namespace std;
 
 mt19937 mrand(time(nullptr));
+sf::Font font;
 
-#define kb sf::Keyboard::
 
 struct quad {
 	uint8_t r, g, b, a;
@@ -57,23 +57,87 @@ quad hsv(int hue, float sat, float val) {
 	}
 }
 
-class EventSeparator { // класс для контроля работы разных потоков над одним объектом
+int textFormat(sf::Text& t, int w) { // подгоняет размер шрифта под нужную ширину свободного места
+	int csize = 10;
+	t.setCharacterSize(10);
+	while (t.getGlobalBounds().width + 15 < w) {
+		csize++;
+		t.setCharacterSize(csize);
+	}
+	csize--;
+	t.setCharacterSize(csize);
+	return csize;
+}
+
+class Button{
 private:
-	deque<int> eventQueue;
+	int left, top, width, height;
+	sf::RectangleShape rect;
+	sf::IntRect hitbox;
+	string text;
+	sf::Text title;
+	bool state = 0, click = 0;
+	bool locked = false;
+	sf::RenderWindow& window;
 public:
-	void startEvent(int thread = 0) {
-		eventQueue.push_back(thread);
-		while (eventQueue.front() != thread) {
-			this_thread::sleep_for(chrono::milliseconds(5));
+	int id = -1;
+	
+	Button(int left, int top, int width, int height, string text, sf::RenderWindow& w) : 
+		left(left), top(top), width(width), height(height), text(text), window(w) {
+
+
+		rect.setSize(sf::Vector2f(width, height));
+		rect.setPosition(sf::Vector2f(left, top));
+
+		title.setFont(font);
+		title.setString(sf::String::fromUtf8(text.begin(), text.end()));
+		textFormat(title, width);
+		int xoffset = (width - title.getGlobalBounds().width) / 2, yoffset = (height - title.getGlobalBounds().height) / 2;
+		title.setPosition(left + xoffset, top + yoffset);
+		title.setFillColor(sf::Color::Black);
+
+		hitbox = sf::IntRect(left, top, width, height);
+	}
+	bool handle() {
+		click = 0;
+		if (hitbox.contains(sf::Mouse::getPosition(window))) {
+			if (!locked)
+				rect.setFillColor(sf::Color(227, 212, 188));
+			if (state && !sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
+				state = 0;
+				click = 1;
+			} 
+			if (!state && sf::Mouse::isButtonPressed(sf::Mouse::Left)) state = 1;
 		}
+		else {
+			if (!locked)
+				rect.setFillColor(sf::Color(245, 237, 225));
+			state = 0;
+			
+		}
+		
+		window.draw(rect);
+		window.draw(title);
+		return click;
 	}
-	void endEvent() {
-		eventQueue.pop_front();
+	bool isLocked() { return locked; }
+	void lock() {
+		locked = 1;
+		rect.setFillColor(sf::Color(153, 145, 133));
+		window.draw(rect);
+		window.draw(title);
 	}
+	void unlock() {
+		locked = 0;
+		rect.setFillColor(sf::Color(245, 237, 225));
+		window.draw(rect);
+		window.draw(title);
+	}
+
 
 };
 
-class Shelling: public EventSeparator
+class Shelling
 {
 private:
 	unsigned n;
@@ -102,11 +166,10 @@ private:
 
 public:
 	string getInfo() {
-		return "Current parameters: p0 = " + format("{:.2f}", p0) + " colours = " + to_string(colours) + " t = " + to_string(t) + " r = " + to_string(r);
+		return "Параметры:\n p0 = " + format("{:.2f}", p0) + "\nКол-во цветов = " + to_string(colours) + "\nТерпимость = " + to_string(t) + "\nРадиус = " + to_string(r);
 	}
 	// float p0, int colours, int t, int r
 	void setParam(int paramId, bool inc) {
-		startEvent(1);
 		switch (paramId) {
 		case 0:
 			if (inc)
@@ -133,13 +196,10 @@ public:
 				r = max(1, r - 1);
 			break;
 		}
-		setup(-1);
-		endEvent();
+		setup();
 	}
 
-	void setup(int thread = 0) {
-		
-		if (thread >= 0) startEvent(thread); //если номер потока меньше 0, то считаем, что о синхронизации позаботились в другой функции
+	void setup() {
 
 		free.clear();
 
@@ -170,14 +230,15 @@ public:
 			}
 		}
 		
-		if (thread >= 0) endEvent();
 	}
 
 	void draw(sf::RenderWindow& window)
 	{
 		static sf::Sprite sprite(texture);
 		texture.update(pixels);
-		sprite.setScale(sf::Vector2f(float(window.getSize().x)/m, float(window.getSize().y)/n));
+		sprite.setPosition(window.getSize().x/4, 0);
+		sprite.setScale(sf::Vector2f(2,2));
+		
 		window.draw(sprite);
 	}
 
@@ -216,13 +277,9 @@ public:
 		}
 	}
 
-	void update(int thread = 0)
+	void update()
 	{
-		startEvent(thread);
-
 		partUpdate(0, 0, n, m);
-		
-		endEvent();
 	}
 
 	Shelling(unsigned n, unsigned m, float p0, int colours, int t) : n(n), m(m), p0(p0), colours(colours), t(t)
@@ -247,102 +304,112 @@ public:
 };
 
 
-
-void InputHandler(Shelling& model) {
-	bool pressedUp = false;
-	bool pressedDown = false;
-	bool pressedLeft = false;
-	bool pressedRight = false;
-	bool pressedSpace = false;
-
-	int paramId = 1;
-	//     0            1       2      3
-	// float p0, int colours, int t, int r
-	vector<string> fieldNames = { "Empty probability", "Number of colours", "Tolerance (max number of enemies)", "Radius of enemies checking" };
-
-	cout << "Editable setting: " << fieldNames[paramId] << "\n";
-	while (true) {
-		if (kb isKeyPressed(kb Key::Space)) pressedSpace = true;
-		else if (pressedSpace) {
-			pressedSpace = false;
-			model.setup(1);
-		}
-		if (kb isKeyPressed(kb Key::Up)) {
-			pressedUp = true;
-		}
-		else if (pressedUp) {
-			model.setParam(paramId, 1);
-			pressedUp = false;
-			cout << model.getInfo() << "\n";
-		}
-		if (kb isKeyPressed(kb Key::Down)) {
-			pressedDown = true;
-		}
-		else if (pressedDown) {
-			model.setParam(paramId, 0);
-			pressedDown = false;
-			cout << model.getInfo() << "\n";
-		}
-
-		if (kb isKeyPressed(kb Key::Left)) {
-			pressedLeft = true;
-		}
-		else if (pressedLeft) {
-			paramId = (paramId - 1 + fieldNames.size()) % fieldNames.size();
-			pressedLeft = false;
-			cout << "Editable setting: " << fieldNames[paramId] << "\n";
-		}
-		if (kb isKeyPressed(kb Key::Right)) {
-			pressedRight = true;
-		}
-		else if (pressedRight) {
-			paramId = (paramId + 1) % fieldNames.size();
-			pressedRight = false;
-			cout << "Editable setting: " << fieldNames[paramId] << "\n";
-		}
-	}
-	
-
-}
-
 int main() {
-	unsigned int W = sf::VideoMode::getDesktopMode().width * 2 / 3;
-	unsigned int H = sf::VideoMode::getDesktopMode().height * 2 / 3;
+
+	if (!font.loadFromFile("res/Mulish.ttf"))
+	{
+		cout << "Font wasn't loaded\n";
+		return 1;
+	}
+
+	unsigned int W = sf::VideoMode::getDesktopMode().width;
+	unsigned int H = sf::VideoMode::getDesktopMode().height;
 
 	int colours = 2;
-	Shelling model(H, W, 0.02, colours , 7);
+	Shelling model(H / 2, W * 3/8, 0.02, colours , 7); // изображение занимает весь экран по высоте и 3/4 по ширине, но рендерим в 4 раза меньше для производительности
 
-	cout << model.getInfo() << "\n";
-	thread ISystem(InputHandler, ref(model));
-	ISystem.detach();
-	sf::RenderWindow window(sf::VideoMode(W, H), "Schelling segregation");
-	
+	sf::RenderWindow window(sf::VideoMode::getDesktopMode(), "Schelling segregation", sf::Style::Fullscreen);
+
+	int margin = H / 80, blockOffset = H / 30;
 	bool fullscreen = false;
+	Button Reset(margin, margin, W / 10, H / 8, "Заново", window);
+	Button Exit(margin, H - margin - H/11, W / 16, H / 11, "Выход", window);
+
+	
+	Button Colour(margin, margin + H / 8 + 2*blockOffset, W / 10, H / 8, "Кол-во цветов", window); 
+	Button Radius(margin, margin + H / 4 + 3*blockOffset , W / 10, H / 8, "Радиус", window);
+	Button Tolerance(margin, margin + H * 3 / 8 + 4 * blockOffset, W / 10, H / 8, "Терпимость", window);
+	Button Prob0(margin, margin + H /2 + 5 * blockOffset, W / 10, H / 8, "Вероятность 0", window);
+	//     0            1       2      3
+	// float p0, int colours, int t, int r
+	Prob0.id = 0;  Colour.id = 1; Tolerance.id = 2; Radius.id = 3;
+	Button Increase(margin + W / 10 + blockOffset, margin + H / 8 + 2 * blockOffset, W / 10, H / 7, "Увеличить", window);
+	Button Decrease(margin + W / 10 + blockOffset, margin + H / 8 + H / 7 + 3 * blockOffset, W / 10, H / 7, "Уменьшить", window);
+
+	sf::Text ModelInfo; 
+	ModelInfo.setFont(font);
+	string Info = model.getInfo();
+	ModelInfo.setString(sf::String::fromUtf8(Info.begin(), Info.end()));
+	textFormat(ModelInfo, W / 9);
+	ModelInfo.setFillColor(sf::Color::Black);
+	ModelInfo.setPosition(margin + W / 10 + blockOffset, margin);
+
+	Button* LastLocked = &Colour;
 
 	while (window.isOpen())
 	{
 		
-
+		
 		sf::Event event;
 		while (window.pollEvent(event))
 		{
 			if (event.type == sf::Event::Closed)
 				window.close();
-			if (event.type == sf::Event::KeyReleased && event.key.code == sf::Keyboard::F12)
-			{
-				fullscreen = !fullscreen;
-				if (fullscreen) {
-					window.create(sf::VideoMode::getDesktopMode(), "Schelling Segregation", sf::Style::None);
-				}
-				else {
-					window.create(sf::VideoMode(W, H), "Schelling segregation");
-				}
+		}
+		
+		window.clear(sf::Color::White);
+		model.update();
+		model.draw(window);
+		if (Reset.handle()) model.setup();
+		if (Exit.handle()) window.close();
+
+		if (Colour.handle()) {
+			if (Colour.isLocked())
+				Colour.unlock();
+			else {
+				LastLocked->unlock();
+				Colour.lock();
+				LastLocked = &Colour;
+			}
+
+		}
+		if (Radius.handle()) {
+			if (Radius.isLocked())
+				Radius.unlock();
+			else {
+				LastLocked->unlock();
+				Radius.lock();
+				LastLocked = &Radius;
+			}
+		}
+		if (Tolerance.handle()) {
+			if (Tolerance.isLocked())
+				Tolerance.unlock();
+			else {
+				LastLocked->unlock();
+				Tolerance.lock();
+				LastLocked = &Tolerance;
+			}
+		}
+		if (Prob0.handle()) {
+			if (Prob0.isLocked())
+				Prob0.unlock();
+			else {
+				LastLocked->unlock();
+				Prob0.lock();
+				LastLocked = &Prob0;
 			}
 		}
 
-		window.clear();
-		model.update();
-		model.draw(window);
+		if (Increase.handle()) {
+			if (LastLocked->isLocked()) model.setParam(LastLocked->id, 1);
+		}
+		if (Decrease.handle()) {
+			if (LastLocked->isLocked()) model.setParam(LastLocked->id, 0);
+		}
+		Info = model.getInfo();
+		ModelInfo.setString(sf::String::fromUtf8(Info.begin(), Info.end()));	
+		window.draw(ModelInfo);
 		window.display();
 	}
 
