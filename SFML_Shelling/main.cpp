@@ -208,24 +208,6 @@ public:
 		return { total - target, targetColor };
 	}
 
-	void partUpdate(int starti, int startj, int height, int width) {
-		for (int i = starti; i < starti + height; ++i)
-		{
-			for (int j = startj; j < startj + width; ++j)
-			{
-				auto [nearby, target] = countNear(i, j);
-				int currentTolerance = uniformTolerance ? tolerance[0] : tolerance[target];
-				if (nearby >= currentTolerance)
-				{
-					int rndk = mrand() % free.size();
-					int k = free[rndk];
-					swap(field[i][j], field[k / m][k % m]);
-					swap4(i * m + j, k);
-					free[rndk] = i * m + j;
-				}
-			}
-		}
-	}
 	void randomUpdate() {
 		for (auto [i, j] : updateOrder) {
 			auto [nearby, target] = countNear(i, j);
@@ -242,8 +224,6 @@ public:
 	}
 	void update()
 	{
-		//partUpdate(0, 0, n, m);
-		//shuffle(updateOrder.begin(), updateOrder.end(), mrand);
 		randomUpdate();
 	}
 
